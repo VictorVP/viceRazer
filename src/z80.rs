@@ -9,7 +9,6 @@ const BIT_5: u8 = 32;
 const Z: u8 = 64;
 const S: u8  = 128;
 
-
 pub struct z80 {
     pub halt: bool,
     pc: u16,
@@ -124,7 +123,7 @@ impl z80 {
         res
     }
 
-    pub fn exec(&mut self, mut mem: &memory) {
+    pub fn exec(&mut self, mem: &mut memory) {
         let byte = self.read_bus(mem);
 
         // Tomar los tres últimos bits 
@@ -139,10 +138,13 @@ impl z80 {
             0x11 => self.ld_de(mem),
             0x16 => self.ld_d_n(mem),
             0x1E => self.ld_e_n(mem),
+            0x20 => self.jr_nz_e(mem),
             0x21 => self.ld_hl(mem),
             0x26 => self.ld_h_n(mem),
+            0x2B => self.dec_hl(),
             0x2E => self.ld_l_n(mem),
             0x31 => self.ld_sp(mem),
+            0x36 => self.ld_hl_n(mem),
             0x3E => self.ld_a_n(mem),
             0x40 => self.ld_b_b(),
             0x41 => self.ld_b_c(),
@@ -150,7 +152,7 @@ impl z80 {
             0x43 => self.ld_b_e(),
             0x44 => self.ld_b_h(),
             0x45 => self.ld_b_l(),
-            0x45 => self.ld_b_hl(mem),
+            0x46 => self.ld_b_hl(mem),
             0x47 => self.ld_b_a(),
             0x48 => self.ld_c_b(),
             0x49 => self.ld_c_c(),
@@ -194,6 +196,7 @@ impl z80 {
             0x6F => self.ld_l_a(),
 
             0xAF => self.xor_a(lo),
+            0xBC => self.cp_h(),
             0xC3 => self.jp_nn(mem),
             0xD3 => self.out_n_a(mem),
             0xED => {
@@ -261,6 +264,20 @@ impl z80 {
         println!("LD DE {:x}", dir);
     }
 
+    fn jr_nz_e(&mut self, mem: &memory) {
+        let x1 = self.read_bus(mem) as i8;
+        println!("Leído offset {} para {}", x1, self.pc);
+        let x2 = self.pc as i16 + x1 as i16;
+        println!("Nueva dirección {} -> {:x} (Se convierte a {:x})", x2, x2, x2 as u16);
+        println!("La condición de salto es: {}", z80::check_flag(self.f,Z));
+        if z80::check_flag(self.f, Z) {
+            
+            self.pc = x2 as u16;
+        }
+
+        println!("JR NZ {:x}    PC {:x}", x1, self.pc);
+    }
+
     fn ld_hl(&mut self, mem: &memory) {
         let x1 = self.read_bus(mem);
         let x2 = self.read_bus(mem);
@@ -279,6 +296,13 @@ impl z80 {
         println!("LD SP {:x} {:x}", x1, x1);
     }
 
+    fn ld_hl_n(&mut self, mem: &mut memory) {
+        let address = ((self.h as u16) << 8) + (self.l as u16);
+        let n = self.read_bus(mem);
+        mem.poke(address, n);
+
+        println!("LD HL {:x}", n);
+    }
     fn jp_nn(&mut self, mem: &memory) {
         let x1 = self.read_bus(mem);
         let x2 = self.read_bus(mem);
@@ -595,6 +619,23 @@ impl z80 {
         self.h = x1;
 
         println!("LD H {:x}", x1);
+    }
+
+    fn cp_h(&mut self) {
+        println!("Voy a comparar A {:x} con H {:x}", self.a, self.h);
+        z80::set_flag(self.f, Z, self.a == self.h);
+        z80::set_flag(self.f, N, self.a < self.h);
+
+        println!("CP H");
+    }
+
+    fn dec_hl (&mut self) {
+        let mut val = ((self.h as u16) << 8) + (self.l as u16);        
+        val -= 1;
+        self.h = (val >> 8) as u8;
+        self.l = (val & 127) as u8;
+
+        println!("DEC HL");
     }
 
     fn ld_l_n(&mut self, mem: &memory) {

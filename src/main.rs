@@ -16,7 +16,7 @@ fn main() {
 
     let mut i = 0;
     while !micro.halt {
-       micro.exec(&mem);
+       micro.exec(&mut mem);
 
        i += 1;
     }
