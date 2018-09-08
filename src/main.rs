@@ -14,10 +14,7 @@ fn main() {
     let mut micro = z80::z80::new();
     let mut mem = memory::memory::new();
 
-    let mut i = 0;
     while !micro.halt {
        micro.exec(&mut mem);
-
-       i += 1;
     }
 }

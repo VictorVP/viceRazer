@@ -1,4 +1,6 @@
 use memory::*;
+use std::fs::OpenOptions;
+use std::io::prelude::*;
 
 const C : u8 = 1;
 const N : u8 = 2;
@@ -48,15 +50,15 @@ impl z80 {
         let out = z80 {
             halt: false,
             pc: 0,
-            sp: 0,
+            sp: 0xFFFF,
             ix_h: 0,
             ix_l: 0,
             iy_h: 0,
             iy_l: 0,
             i: 0,
             r: 0,
-            a: 0,
-            f: 0,
+            a: 0xFF,
+            f: 0xFF,
             b: 0,
             c: 0,
             d: 0,
@@ -78,16 +80,44 @@ impl z80 {
         out
     }
     
+    fn save_state(&self) {
+        let mut file = OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open("d:\\volcadoEmu\\salidaMio.txt")
+            .unwrap();
+        let norm_iff1 = if self.iff1 {
+            1
+        } else {
+            0
+        };
+
+        let norm_iff2 = if self.iff2 {
+            1
+        } else {
+            0
+        };
+
+        if let Err(e) = writeln!(file, 
+            "pc:{} sp:{} ix_h:{} ix_l:{} iy_h:{} iy_l:{} i:{} r:{} a:{} f:{} b:{} c:{} d:{} e:{} h:{} l:{} a_alt:{} f_alt:{} b_alt:{} c_alt:{} d_alt:{} e_alt:{} h_alt:{} l_alt:{} iff1:{} iff2:{}", 
+            self.pc, self.sp, self.ix_h, self.ix_l, self.iy_h, self.iy_l, self.i, self.r, self.a, self.f, self.b, self.c, self.d, self.e, self.h, self.l, 
+            self.a_alt, self.f_alt, self.b_alt, self.c_alt, self.d_alt, self.e_alt, self.h_alt, self.l_alt, norm_iff1, norm_iff2) {
+                eprintln!("No he podido escribir la línea");
+        }
+    }
+
+    fn get_word(hi: u8, lo: u8) -> u16 {
+        ((hi as u16) << 8) + (lo as u16)
+    }
+
     pub fn set_af (&mut self, value:u16) {        
         let hi = (value >> 8) as u8;
         self.a = hi;
         self.f = (value & 127) as u8;
     }
 
-    pub fn get_af(&self) -> u16 {
-        let a_aux = self.a as u16;
-
-        ((a_aux << 8) as u16 + (self.f) as u16)
+    pub fn get_af(&self) -> u16 {       
+        z80::get_word(self.a, self.f)       
     }   
 
     fn check_flag(flag_container: u8, flag: u8) -> bool {
@@ -138,9 +168,11 @@ impl z80 {
             0x11 => self.ld_de(mem),
             0x16 => self.ld_d_n(mem),
             0x1E => self.ld_e_n(mem),
+            0x19 => self.add_hl_de(),
             0x20 => self.jr_nz_e(mem),
             0x21 => self.ld_hl(mem),
             0x26 => self.ld_h_n(mem),
+            0x2A => self.ld_hl_nn(mem),
             0x2B => self.dec_hl(),
             0x2E => self.ld_l_n(mem),
             0x31 => self.ld_sp(mem),
@@ -195,6 +227,7 @@ impl z80 {
             0x6E => self.ld_l_hl(mem),
             0x6F => self.ld_l_a(),
 
+            0xA7 => self.and_a(),
             0xAF => self.xor_a(lo),
             0xBC => self.cp_h(),
             0xC3 => self.jp_nn(mem),
@@ -208,6 +241,7 @@ impl z80 {
                 self.halt = true;
             },
        }
+       self.save_state();
     }
 
     fn read_bus(&mut self, mem: &memory) -> u8 {
@@ -251,7 +285,8 @@ impl z80 {
         let x2 = self.read_bus(mem);
         self.c = x1;
         self.b = x2;
-        let dir = ((x1 as u16) << 8) + (x2 as u16);
+        //let dir = ((x1 as u16) << 8) + (x2 as u16);
+        let dir = z80::get_word(x1, x2);
         println!("LD BC {:x}", dir);
     }
 
@@ -260,17 +295,25 @@ impl z80 {
         let x2 = self.read_bus(mem);
         self.d = x1;
         self.e = x2;
-        let dir = ((x1 as u16) << 8) + (x2 as u16);
+        let dir = z80::get_word(x1, x2);
         println!("LD DE {:x}", dir);
     }
 
+    fn add_hl_de(&mut self) {
+        let mut hl = z80::get_word(self.h, self.l);
+        let de = z80::get_word(self.d, self.e);
+        println!("Sumar {:x} + {:x}", hl, de);
+        hl = hl + de;
+        self.h = (hl >> 8) as u8;
+        self.l = (hl & 127) as u8;
+
+        println!("ADD HL DE");
+    }
+
     fn jr_nz_e(&mut self, mem: &memory) {
-        let x1 = self.read_bus(mem) as i8;
-        println!("Leído offset {} para {}", x1, self.pc);
-        let x2 = self.pc as i16 + x1 as i16;
-        println!("Nueva dirección {} -> {:x} (Se convierte a {:x})", x2, x2, x2 as u16);
-        println!("La condición de salto es: {}", z80::check_flag(self.f,Z));
-        if z80::check_flag(self.f, Z) {
+        let x1 = self.read_bus(mem) as i8;        
+        let x2 = self.pc as i16 + x1 as i16;        
+        if !z80::check_flag(self.f, Z) {
             
             self.pc = x2 as u16;
         }
@@ -282,22 +325,22 @@ impl z80 {
         let x1 = self.read_bus(mem);
         let x2 = self.read_bus(mem);
         self.h = x1;
-        self.l = x2;
-        let dir = ((x1 as u16) << 8) + (x2 as u16);
+        self.l = x2;        
+        let dir = z80::get_word(x1, x2);
         println!("LD HL {:x}", dir);
     }
 
     fn ld_sp(&mut self, mem: &memory) {
         let x1 = self.read_bus(mem);
         let x2 = self.read_bus(mem);
-        let dir = ((x1 as u16) << 8) + (x2 as u16);
+        let dir = z80::get_word(x1, x2);
         self.sp = dir;        
         
         println!("LD SP {:x} {:x}", x1, x1);
     }
 
-    fn ld_hl_n(&mut self, mem: &mut memory) {
-        let address = ((self.h as u16) << 8) + (self.l as u16);
+    fn ld_hl_n(&mut self, mem: &mut memory) {        
+        let address = z80::get_word(self.h, self.l);
         let n = self.read_bus(mem);
         mem.poke(address, n);
 
@@ -345,8 +388,8 @@ impl z80 {
         println!("LD B L");
     }
     fn ld_b_hl(&mut self, mem: &memory)
-    {
-        let addr = (self.h as u16) << 8 + (self.l as u16);
+    {                
+        let addr = z80::get_word(self.h, self.l);
         let byte = mem.peek(addr);
         self.b = byte;
         println!("LD B HL");
@@ -389,8 +432,8 @@ impl z80 {
         println!("LD C L");
     }
     fn ld_c_hl(&mut self, mem: &memory)
-    {
-        let addr = (self.h as u16) << 8 + (self.l as u16);
+    {        
+        let addr = z80::get_word(self.h, self.l);
         let byte = mem.peek(addr);
         self.c = byte;
         println!("LD C HL");
@@ -433,8 +476,8 @@ impl z80 {
         println!("LD D L");
     }
     fn ld_d_hl(&mut self, mem: &memory)
-    {
-        let addr = (self.h as u16) << 8 + (self.l as u16);
+    {        
+        let addr  = z80::get_word(self.h, self.l);
         let byte = mem.peek(addr);
         self.d = byte;
         println!("LD D HL");
@@ -478,7 +521,7 @@ impl z80 {
     }
     fn ld_e_hl(&mut self, mem: &memory)
     {
-        let addr = (self.h as u16) << 8 + (self.l as u16);
+        let addr  = z80::get_word(self.h, self.l);
         let byte = mem.peek(addr);
         self.e = byte;
         println!("LD E HL");
@@ -523,7 +566,7 @@ impl z80 {
     }
     fn ld_h_hl(&mut self, mem: &memory)
     {
-        let addr = (self.h as u16) << 8 + (self.l as u16);
+        let addr  = z80::get_word(self.h, self.l);
         let byte = mem.peek(addr);
         self.h = byte;
         println!("LD H HL");
@@ -568,7 +611,7 @@ impl z80 {
     }
     fn ld_l_hl(&mut self, mem: &memory)
     {
-        let addr = (self.h as u16) << 8 + (self.l as u16);
+        let addr  = z80::get_word(self.h, self.l);
         let byte = mem.peek(addr);
         self.l = byte;
         println!("LD L HL");
@@ -620,20 +663,50 @@ impl z80 {
 
         println!("LD H {:x}", x1);
     }
+    fn ld_hl_nn(&mut self, mem: &memory) {
+        let x1 = self.read_bus(mem);
+        let x2 = self.read_bus(mem);
+        self.h = x1;
+        self.l = x2;
 
+        println!("LD HL {:x}{:x}", x1, x2);
+    }
     fn cp_h(&mut self) {
         println!("Voy a comparar A {:x} con H {:x}", self.a, self.h);
-        z80::set_flag(self.f, Z, self.a == self.h);
-        z80::set_flag(self.f, N, self.a < self.h);
+        let diff = (self.a as i16) - (self.h as i16);
+
+        let mut f: u8 = 0x28;
+        if (diff & 0x80) > 0 {
+            f = f | 0x80;
+        }
+        if  diff == 0 {
+            f = f | 0x40;
+        }
+
+        if (self.a & 0xF) < (self.h & 0xF){
+            f = f | 0x10;
+        }
+
+        if ((self.a > 0x80) & (self.h > 0x80) & (diff > 0)) | ((self.a < 0x80) & (self.h < 0x80) & (diff < 0)) {
+            f = f | 0x04;
+        }
+
+        f = f | 0x02;
+
+        if diff > 0xFF {
+            f = f | 0x01;
+        }
+
+        self.f = f;
 
         println!("CP H");
     }
 
     fn dec_hl (&mut self) {
-        let mut val = ((self.h as u16) << 8) + (self.l as u16);        
+        let mut val = z80::get_word(self.h, self.l);        
         val -= 1;
         self.h = (val >> 8) as u8;
-        self.l = (val & 127) as u8;
+        self.l = (val & 255) as u8;
 
         println!("DEC HL");
     }
@@ -644,18 +717,34 @@ impl z80 {
 
         println!("LD H {:x}", x1);
     }
-
-    
     fn out_n_a(&mut self, mem: &memory) {
         let x1 = self.read_bus(mem);
-        let dir = ((self.a as u16) << 8) + (x1 as u16);
+        let dir  = z80::get_word(self.a, x1);        
         println!("out {:x} A", x1);
         println!("  TODO: poner el valor {} en la dirección {:x}", self.a, dir);
     }
+    fn and_a(&mut self) {
+        self.a = self.a & self.a;
+        let mut f = self.f & 0x28;
+        if (self.a & 0x80) > 0 {
+            f = f | 0x80;
+        }
+        if self.a == 0 {
+            f = f | 0x40;
+        }
+        f = f | 0x10;
 
+        if z80::check_byte_parity(self.a) {
+            f = f | 0x04;
+        }
+        self.f = f;
+
+        println!("AND A");
+    }
     fn decode_ed_instructions(&mut self, mem: &memory, byte: u8){
         match byte {
             0x47 => self.ld_i_a(),
+            0x52 => self.sbc_hl_de(),
             _ => println!("El opCode ed {:x} no está implementado", byte),
         }
     }
@@ -663,5 +752,35 @@ impl z80 {
     fn ld_i_a(&mut self) {
         self.i = self.a;
         println!("LD I A");
+    }
+
+    fn sbc_hl_de(&mut self) {
+        let hl = ((self.h as i16) << 8) + (self.l as i16);
+        let de = ((self.d as i16) << 8) + (self.d as i16);
+        let c = (self.f & 0x01) as i16;
+        let diff = hl - de - c;
+        let mut f = self.f & 0x28;
+        if diff < 0 {
+            f = f | 0x80;
+        }
+        if diff == 0 {
+            f = f | 0x40;
+        }
+
+        if self.l < (self.e + (c as u8)) {
+            f = f | 0x10;
+        }
+
+        if (diff < 0) | (diff > 255) {
+            f = f | 0x04;
+        }
+
+        if diff > hl {
+            f = f | 0x01;           
+        }
+
+        self.f = f;
+
+        println!("SBC HL DE")
     }
 }
