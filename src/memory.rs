@@ -1,12 +1,12 @@
 pub const ROM_48K: &'static [u8; 16 * 1024] = include_bytes!("48.rom");
-pub struct memory {
+pub struct Memory {
     // Simular una memoria de 64 K
     contents: [u8; 64 * 1024]
 }
 
-impl memory {
-    pub fn new () -> memory {
-        let mut out = memory {
+impl Memory {
+    pub fn new () -> Memory {
+        let mut out = Memory {
          contents: [0; 64 * 1024]
         };
 
@@ -23,7 +23,7 @@ impl memory {
     }
 
     pub fn load_rom(&mut self, rom: &[u8])
-    {        
-        self.contents[..16 * 1024].copy_from_slice(&rom);        
+    {
+        self.contents[..16 * 1024].copy_from_slice(&rom);
     }
 }
